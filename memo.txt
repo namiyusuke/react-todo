@@ -1,0 +1,132 @@
+作成を試みた理由
+asanaのようなタスク管理アプリを作成したかった
+
+
+
+プラスにした点
+・優先度をつける
+・期限日をつける
+・繰り返しタイプをつける
+・ローカルストレージに保存する
+
+チャレンジ(工夫した)した点
+・優先度の表示
+・期限日の表示
+・繰り返しタイプの表示
+・ローカルストレージの保存
+
+
+
+
+私たちは優先度を「high（高）」「medium（中）」「low（低）」の3段階で表現しています。この3段階は、ユーザーにとって理解しやすく、かつ十分な粒度を持つ分類だと考えました。
+export type Priority = "high" | "medium" | "low";
+
+技術的実装
+優先度の技術的実装について、いくつかの重要なポイントを説明します。
+まず、新しいタスクを作成する際のデフォルト優先度は「medium（中）」に設定しています。これは、ユーザーが特に指定しない場合の妥当な初期値だと考えたためです。
+const [priority, setPriority] = useState<Priority>("medium");
+
+優先度の選択UIは、シンプルなドロップダウンリストとして実装しています。これにより、ユーザーは3つの選択肢から簡単に優先度を選べます。
+
+<select value={priority} onChange={(e) => onChangePriority(e.target.value as Priority)}>
+  <option value="high">高</option>
+  <option value="medium">中</option>
+  <option value="low">低</option>
+</select>
+
+タスクの表示部分では、優先度に応じた視覚的フィードバックを提供するために、条件付きクラス適用を行っています：
+
+const getPriorityColor = (priority: Priority) => {
+  switch (priority) {
+    case "high":
+      return "bg-red-50 border-l-4 border-red-500";
+    case "medium":
+      return "bg-yellow-50 border-l-4 border-yellow-500";
+    case "low":
+      return "bg-green-50 border-l-4 border-green-500";
+    default:
+      return "bg-gray-50";
+  }
+};
+
+
+期限日のデータ形式期限日は
+「YYYY-MM-DD」形式の文字列として保存されます。例："2023-12-31"
+この形式を選んだ理由：
+HTML5の日付入力と互換性がある
+文字列の比較でも日付順にソートできる
+JSONでの保存・読み込みが容易
+/ InputTodos.tsxの一部
+<div className="w-full md:w-40">
+  <label className="block text-sm font-medium text-gray-700 mb-1">
+    期限日
+  </label>
+  <input
+    type="date"
+    value={dueDate}
+    onChange={(e) => onChangeDueDate(e.target.value)}
+    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+  />
+</div>
+type="date"属性により、ブラウザのネイティブ日付選択UIが表示される
+value属性で現在選択されている日付を表示
+onChangeイベントで選択変更を検知
+const onClickAdd = () => {
+  if (todoText === "") return;
+  const newTodo: Todo = {
+    id: Date.now().toString(),
+    text: todoText,
+    priority: priority,
+    dueDate: dueDate || new Date().toISOString().split("T")[0],  // 未指定なら今日の日付
+    repeatType: repeat,
+  };
+  // ...残りのコード
+};
+dueDate || new Date().toISOString().split("T")[0] の部分で：
+dueDateが空文字列の場合、現在の日付を使用
+new Date().toISOString()で現在の日時をISO形式で取得
+.split("T")[0]でISO文字列から日付部分のみを抽出（YYYY-MM-DD形式）
+5. 期限切れの判定
+タスクが期限切れかどうかを判定する関数：
+/**
+ * 期限切れかどうかを判定
+ * @param dueDate 期限日
+ * @returns 期限切れならtrue、そうでなければfalse
+ */
+const isOverdue = (dueDate: string) => {
+  // 期限日と今日の日付を比較
+  return new Date(dueDate) < new Date(new Date().toDateString());
+};
+
+
+
+苦労した点: 単純な「毎日/毎週/毎月」以外の複雑な繰り返しパターン（「平日のみ」「隔週」など）の実装に苦労しました。
+具体的な課題: 複雑なパターンを表現するデータ構造と、次回日付を正確に計算するアルゴリズムの設計が難しかったです。
+解決策: まずは基本的な繰り返しパターンに絞り、拡張性を考慮したデータ構造を設計しました。将来的な拡張を見据えて、繰り返し計算ロジックを分離したユーティリティ関数として実装しました。
+
+具体的な苦労: 日付の比較処理で、ユーザーのタイムゾーンによって「今日」の判定が異なり、期限切れの表示が不正確になる問題に悩まされました。
+直面した状況: 例えば、日本時間で1月1日にタスクを作成し、期限日を1月2日に設定した場合、アメリカのユーザーにとっては現地時間でまだ12月31日であるため、期限日の計算が混乱していました。
+
+// 最初の問題のあるコード
+  const isOverdue = (dueDate: string) => {
+    return new Date(dueDate) < new Date();  // 時間部分も含めて比較してしまう
+  };
+
+  // 修正を試みたが、まだ問題があるコード
+  const isOverdue = (dueDate: string) => {
+    const today = new Date();
+    return new Date(dueDate) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  };
+
+  // 最終的な解決策
+  const isOverdue = (dueDate: string) => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];  // YYYY-MM-DD形式の今日の日付
+    return dueDate < todayStr;  // 文字列比較（YYYY-MM-DD形式なので正しく比較できる）
+  };
+
+
+タイムゾーン問題の回避:
+toISOString() は常に UTC（協定世界時）を基準にする
+日付部分のみを使用することで、時差による「今日」の定義の違いを回避
+この方法を使うことで、日付処理の多くの落とし穴を避け、より堅牢なアプリケーションを構築できます。
